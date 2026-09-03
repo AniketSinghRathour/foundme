@@ -8,6 +8,7 @@ import { r2 } from "../../common/config/r2.js";
 import { env } from "../../common/config/env.js";
 import { prisma } from "../../common/config/prisma.js";
 import { ApiError } from "../../common/utils/ApiError.js";
+import jwt from "jsonwebtoken";
 
 /** Presigned upload URL expiry — 15 minutes */
 const UPLOAD_EXPIRES_IN = 15 * 60;
@@ -55,13 +56,35 @@ export async function getPresignedPreviewUrl(
  */
 export async function getPresignedDownloadUrl(
   photoId: string,
+  userId?: string,
+  token?: string,
 ): Promise<{ id: string; downloadUrl: string; fileName: string }> {
   const photo = await prisma.photo.findUnique({
     where: { id: photoId },
+    include: { event: true },
   });
 
   if (!photo) {
     throw ApiError.notFound("Photo not found");
+  }
+
+  // Access control check (§12)
+  let hasAccess = false;
+  if (userId && photo.event.ownerId === userId) {
+    hasAccess = true; // Photographer owns the event
+  } else if (token) {
+    try {
+      const decoded = jwt.verify(token, env.JWT_SECRET) as { photoIds: string[] };
+      if (decoded.photoIds && decoded.photoIds.includes(photoId)) {
+        hasAccess = true; // Attendee has signed token containing this photo
+      }
+    } catch (err) {
+      // Invalid token
+    }
+  }
+
+  if (!hasAccess) {
+    throw ApiError.forbidden("You do not have permission to download this photo");
   }
 
   const fileName = photo.s3KeyOriginal.split("/").pop() ?? `photo-${photo.id}.jpg`;
@@ -84,10 +107,38 @@ export async function getPresignedDownloadUrl(
  */
 export async function getBatchPresignedDownloadUrls(
   photoIds: string[],
+  userId?: string,
+  token?: string,
 ): Promise<Array<{ id: string; downloadUrl: string; fileName: string }>> {
   const photos = await prisma.photo.findMany({
     where: { id: { in: photoIds } },
+    include: { event: true },
   });
+
+  if (photos.length !== photoIds.length) {
+    throw ApiError.notFound("One or more photos not found");
+  }
+
+  // Access control check (§12)
+  for (const photo of photos) {
+    let hasAccess = false;
+    if (userId && photo.event.ownerId === userId) {
+      hasAccess = true; // Photographer owns the event
+    } else if (token) {
+      try {
+        const decoded = jwt.verify(token, env.JWT_SECRET) as { photoIds: string[] };
+        if (decoded.photoIds && decoded.photoIds.includes(photo.id)) {
+          hasAccess = true; // Attendee has signed token containing this photo
+        }
+      } catch (err) {
+        // Invalid token
+      }
+    }
+
+    if (!hasAccess) {
+      throw ApiError.forbidden("You do not have permission to download one or more photos");
+    }
+  }
 
   return Promise.all(
     photos.map(async (photo) => {
@@ -274,7 +325,8 @@ export async function deletePhotos(photoIds: string[], ownerId: string) {
   });
 }
 
-const PUBLIC_PHOTOS_PAGE_SIZE = 24;
+/** Page size for public photo listing — §14: 40, flat, named constant */
+const PUBLIC_PHOTOS_PAGE_SIZE = 40;
 
 /**
  * List INDEXED photos for an event — public, no auth or ownership check.

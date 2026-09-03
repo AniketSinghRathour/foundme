@@ -20,6 +20,7 @@ const envSchema = z.object({
   AWS_REGION: z.string().min(1),
   AWS_ACCESS_KEY_ID: z.string().min(1),
   AWS_SECRET_ACCESS_KEY: z.string().min(1),
+  JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters long"),
   S3_BUCKET_NAME: z.string().min(1),
   R2_ENDPOINT: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),

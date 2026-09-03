@@ -16,8 +16,8 @@ export type CreateEventInput = z.infer<typeof createEventSchema>;
 /** PATCH /api/events/:eventId — update an event */
 export const updateEventSchema = z.object({
   name: z.string().min(1, "Event name is required").max(200).optional(),
-  description: z.string().max(2000).optional(),
-  coverImage: z.string().url("Cover image must be a valid URL").optional(),
+  description: z.string().max(2000).optional().nullable(),
+  coverImage: z.string().url("Cover image must be a valid URL").optional().nullable(),
 });
 
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;

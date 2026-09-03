@@ -15,7 +15,7 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Event Photo Recognition Platform",
+  title: "Facet - Event Photo Recognition Platform",
   description: "Find yourself in every moment. Upload a selfie and get your matches instantly.",
 };
 

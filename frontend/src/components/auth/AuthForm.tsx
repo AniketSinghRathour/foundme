@@ -9,50 +9,81 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 
 interface AuthFormProps {
   type: "sign-in" | "sign-up";
 }
 
+const signInSchema = z.object({
+  email: z.string().email("Please enter a valid email address."),
+  password: z.string().min(1, "Password is required"),
+  name: z.string().optional(),
+});
+
+const signUpSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Please enter a valid email address."),
+  password: z.string().min(8, "Password must be at least 8 characters long."),
+});
+
 export function AuthForm({ type }: AuthFormProps) {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState(""); // Only for sign-up
-  const [loading, setLoading] = useState(false);
+  
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const [verificationPending, setVerificationPending] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  const isSignUp = type === "sign-up";
+
+  const form = useForm({
+    resolver: zodResolver(isSignUp ? signUpSchema : signInSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+    },
+  });
+
+  const { register, handleSubmit, formState: { errors, isSubmitting }, getValues } = form;
+
+  const onSubmit = async (values: z.infer<typeof signUpSchema> | z.infer<typeof signInSchema>) => {
     setError("");
 
     try {
-      if (type === "sign-up") {
-        const { error } = await signUp.email({
-          email,
-          password,
-          name: name || email.split("@")[0],
+      if (isSignUp) {
+        const signUpValues = values as z.infer<typeof signUpSchema>;
+        const { error: apiError } = await signUp.email({
+          email: signUpValues.email,
+          password: signUpValues.password,
+          name: signUpValues.name || signUpValues.email.split("@")[0],
+          callbackURL: `${window.location.origin}/dashboard`,
         });
-        if (error) throw new Error(error.message);
+        if (apiError) throw new Error(apiError.message);
         // Backend has requireEmailVerification: true — no session created yet.
         // Show the "check your email" state instead of redirecting.
         setVerificationPending(true);
       } else {
-        const { error } = await signIn.email({
-          email,
-          password,
+        const { error: apiError } = await signIn.email({
+          email: values.email,
+          password: values.password,
         });
-        if (error) throw new Error(error.message);
+        if (apiError) throw new Error(apiError.message);
         router.push("/dashboard");
         router.refresh();
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setLoading(false);
+      let msg = err instanceof Error ? err.message : "An error occurred";
+      // Clean up technical backend validation errors like "[body.email] Invalid email"
+      msg = msg.replace(/^\[.*?\]\s*/, "");
+      
+      if (msg === "PASSWORD_TOO_SHORT" || msg === "Password is too short") {
+        msg = "Password must be at least 8 characters long.";
+      }
+      
+      setError(msg);
     }
   };
 
@@ -65,7 +96,9 @@ export function AuthForm({ type }: AuthFormProps) {
         callbackURL: `${window.location.origin}/dashboard`,
       });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Google sign-in failed");
+      let msg = err instanceof Error ? err.message : "Google sign-in failed";
+      msg = msg.replace(/^\[.*?\]\s*/, "");
+      setError(msg);
       setGoogleLoading(false);
     }
   };
@@ -82,7 +115,7 @@ export function AuthForm({ type }: AuthFormProps) {
           </div>
           <CardTitle className="text-2xl font-serif tracking-tight">Check your email</CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            We&apos;ve sent a verification link to <strong>{email}</strong>. Click it to activate your account.
+            We&apos;ve sent a verification link to <strong>{getValues("email")}</strong>. Click it to activate your account.
           </CardDescription>
         </CardHeader>
         <CardContent className="pb-6">
@@ -114,11 +147,74 @@ export function AuthForm({ type }: AuthFormProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {error && (
+            <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950/50 rounded-md border border-red-200 dark:border-red-900">
+              {error}
+            </div>
+          )}
+          {type === "sign-up" && (
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="Jane Doe"
+                {...register("name")}
+                className="h-11 bg-white dark:bg-zinc-950"
+              />
+              {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message as string}</p>}
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="jane@example.com"
+              {...register("email")}
+              className="h-11 bg-white dark:bg-zinc-950"
+            />
+            {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email.message as string}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              {...register("password")}
+              className="h-11 bg-white dark:bg-zinc-950"
+            />
+            {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password.message as string}</p>}
+          </div>
+          <Button
+            type="submit"
+            className="w-full h-11 bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 font-medium transition-all"
+            disabled={isSubmitting || googleLoading}
+          >
+            {isSubmitting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            {type === "sign-in" ? "Sign In" : "Sign Up"}
+          </Button>
+        </form>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white dark:bg-zinc-950 px-2 text-zinc-500">
+              Or continue with
+            </span>
+          </div>
+        </div>
+
         <Button
           variant="outline"
           className="w-full h-11 border-zinc-300 dark:border-zinc-700 font-medium transition-all hover:bg-zinc-50 dark:hover:bg-zinc-800"
           onClick={handleGoogleAuth}
-          disabled={googleLoading || loading}
+          disabled={googleLoading || isSubmitting}
         >
           {googleLoading ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -149,72 +245,6 @@ export function AuthForm({ type }: AuthFormProps) {
           )}
           {type === "sign-in" ? "Sign in with Google" : "Sign up with Google"}
         </Button>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-zinc-200 dark:border-zinc-800" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white dark:bg-zinc-950 px-2 text-zinc-500">
-              Or continue with
-            </span>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950/50 rounded-md border border-red-200 dark:border-red-900">
-              {error}
-            </div>
-          )}
-          {type === "sign-up" && (
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="Jane Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className="h-11 bg-white dark:bg-zinc-950"
-              />
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="jane@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="h-11 bg-white dark:bg-zinc-950"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="h-11 bg-white dark:bg-zinc-950"
-            />
-          </div>
-          <Button
-            type="submit"
-            className="w-full h-11 bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 font-medium transition-all"
-            disabled={loading || googleLoading}
-          >
-            {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
-            {type === "sign-in" ? "Sign In" : "Sign Up"}
-          </Button>
-        </form>
       </CardContent>
       <CardFooter className="flex flex-col border-t border-zinc-100 dark:border-zinc-800 p-6 bg-zinc-50/50 dark:bg-zinc-900/50">
         <p className="text-sm text-center text-zinc-500">

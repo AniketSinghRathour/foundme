@@ -13,8 +13,9 @@ export default function AccountSettingsPage() {
   const { data: session } = useSession();
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-3xl">
-      <div className="mb-8">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-[#FAF7F2] py-8">
+      <div className="container mx-auto px-4 max-w-3xl w-full -mt-10">
+        <div className="mb-8">
         <Link href="/" className={cn(buttonVariants({ variant: "ghost" }), "mb-4 -ml-4 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 flex items-center inline-flex w-fit")}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Home
@@ -47,14 +48,14 @@ export default function AccountSettingsPage() {
                 <Label htmlFor="name">Full Name</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-                  <Input id="name" defaultValue={session?.user?.name || ""} className="pl-10 h-11 bg-zinc-50 dark:bg-zinc-900" disabled />
+                  <Input id="name" value={session?.user?.name || ""} readOnly className="pl-10 h-11 bg-zinc-50 dark:bg-zinc-900" disabled />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-                  <Input id="email" defaultValue={session?.user?.email || ""} className="pl-10 h-11 bg-zinc-50 dark:bg-zinc-900" disabled />
+                  <Input id="email" value={session?.user?.email || ""} readOnly className="pl-10 h-11 bg-zinc-50 dark:bg-zinc-900" disabled />
                 </div>
               </div>
             </div>
@@ -63,6 +64,7 @@ export default function AccountSettingsPage() {
             </p>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -2,17 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchApi } from "@/lib/apiClient";
-import { Event, Photo } from "@/types/api";
+import { Event, Photo, EventSchema, PhotoSchema } from "@/types/api";
 import { Uploader } from "@/components/photographer/Uploader";
 import { ShareLinkCard } from "@/components/photographer/ShareLinkCard";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { use, useState, useCallback, useEffect } from "react";
-import { ArrowLeft, Loader2, Calendar, Settings, Image as ImageIcon, Trash2, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, X, Download, ZoomIn, Edit2 } from "lucide-react";
+import { ArrowLeft, Loader2, Calendar, Settings, Image as ImageIcon, Trash2, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, X, Download, ZoomIn, MoreVertical } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +38,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 
 type StatusFilter = "ALL" | "INDEXED" | "PENDING" | "FAILED";
@@ -163,6 +172,14 @@ function PhotoLightbox({ photos, startIndex, onClose, onDownload }: LightboxProp
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
+const updateEventSchema = z.object({
+  name: z.string().min(1, "Event name is required"),
+  description: z.string().optional(),
+  coverImage: z.string().url("Must be a valid URL").optional().or(z.literal("")),
+});
+
+type UpdateEventFormValues = z.infer<typeof updateEventSchema>;
+
 export default function EventDetailPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const router = useRouter();
@@ -170,18 +187,29 @@ export default function EventDetailPage({ params }: PageProps) {
 
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isDeletingEvent, setIsDeletingEvent] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isUpdatingEvent, setIsUpdatingEvent] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", description: "" });
   const [isDeletingPhotos, setIsDeletingPhotos] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
+  const form = useForm<UpdateEventFormValues>({
+    resolver: zodResolver(updateEventSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      coverImage: "",
+    },
+  });
+
+  const { register, handleSubmit, formState: { errors }, reset } = form;
+
   const { data: event, isLoading, error } = useQuery({
     queryKey: ["event", resolvedParams.id],
     queryFn: async () => {
-      const data = await fetchApi<Event>(`/events/${resolvedParams.id}`);
-      setEditForm({ name: data.name, description: data.description || "" });
+      const data = await fetchApi<Event>(`/events/${resolvedParams.id}`, { schema: EventSchema });
+      reset({ name: data.name, description: data.description || "", coverImage: data.coverImage || "" });
       return data;
     }
   });
@@ -200,7 +228,7 @@ export default function EventDetailPage({ params }: PageProps) {
 
   const { data: photos, refetch: refetchPhotos } = useQuery({
     queryKey: ["event-photos", resolvedParams.id],
-    queryFn: () => fetchApi<Photo[]>(`/photos?eventId=${resolvedParams.id}`),
+    queryFn: () => fetchApi<Photo[]>(`/photos?eventId=${resolvedParams.id}`, { schema: z.array(PhotoSchema) }),
     refetchInterval: 10000,
   });
 
@@ -221,15 +249,16 @@ export default function EventDetailPage({ params }: PageProps) {
     }
   };
 
-  const handleUpdateEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editForm.name.trim()) return;
-    
+  const onSubmit = async (values: UpdateEventFormValues) => {
     try {
       setIsUpdatingEvent(true);
       await fetchApi(`/events/${resolvedParams.id}`, {
         method: "PATCH",
-        body: JSON.stringify(editForm),
+        body: JSON.stringify({
+          name: values.name,
+          description: values.description || null,
+          coverImage: values.coverImage || undefined,
+        }),
       });
       await queryClient.invalidateQueries({ queryKey: ["event", resolvedParams.id] });
       await queryClient.invalidateQueries({ queryKey: ["created-events"] });
@@ -301,6 +330,62 @@ export default function EventDetailPage({ params }: PageProps) {
     );
   }
 
+  const sidebarCardsContent = (
+    <div className="space-y-8">
+      <ShareLinkCard eventId={resolvedParams.id} eventName={event.name} />
+
+      {/* Stats Card */}
+      <div className="bg-white  p-6 rounded-[2rem] border border-zinc-200  shadow-sm">
+        <h3 className="text-lg font-medium text-zinc-900  mb-4">Indexing Status</h3>
+        <div className="space-y-4">
+          <div className="flex justify-between items-center pb-4 border-b border-zinc-100 ">
+            <span className="text-zinc-500">Indexed &amp; Ready</span>
+            <span className="font-semibold text-emerald-600  text-lg">{statusCounts?.indexed ?? 0}</span>
+          </div>
+          <div className="flex justify-between items-center pb-4 border-b border-zinc-100 ">
+            <span className="text-zinc-500 flex items-center">
+              Processing {statusCounts?.pending ? <Loader2 className="ml-2 h-3 w-3 animate-spin" /> : null}
+            </span>
+            <span className="font-semibold text-amber-600 text-lg">{statusCounts?.pending ?? 0}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-zinc-500">Failed</span>
+            <span className={cn("font-medium text-sm", (statusCounts?.failed ?? 0) > 0 ? "text-red-500 font-semibold text-lg" : "text-zinc-400")}>
+              {statusCounts?.failed ?? 0}
+            </span>
+          </div>
+        </div>
+        {(statusCounts?.failed ?? 0) > 0 && (
+          <button
+            onClick={() => setStatusFilter("FAILED")}
+            className="mt-4 w-full text-xs text-red-500 hover:text-red-700 transition-colors text-center underline underline-offset-2"
+          >
+            View failed photos →
+          </button>
+        )}
+      </div>
+
+      {/* Analytics Card */}
+      <div className="bg-white  p-6 rounded-[2rem] border border-zinc-200  shadow-sm">
+        <h3 className="text-lg font-medium text-zinc-900  mb-4">Analytics</h3>
+        <div className="space-y-4">
+          <div className="flex justify-between items-center pb-4 border-b border-zinc-100 ">
+            <span className="text-zinc-500">Total Searches</span>
+            <span className="font-semibold text-zinc-900  text-lg">
+              {stats?.totalSearches ?? 0}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-zinc-500">Photos Found</span>
+            <span className="font-semibold text-indigo-600  text-lg">
+              {stats?.totalPhotosFound ?? 0}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -308,48 +393,49 @@ export default function EventDetailPage({ params }: PageProps) {
           <div className="lg:col-span-2 space-y-12">
             {/* Header */}
             <div>
-              <Link href="/dashboard" className={cn(buttonVariants({ variant: "ghost" }), "mb-4 -ml-4 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 flex items-center inline-flex w-fit")}>
+              <Link href="/dashboard" className={cn(buttonVariants({ variant: "ghost" }), "mb-4 -ml-4 text-zinc-500 hover:text-zinc-900 :text-zinc-100 flex items-center inline-flex w-fit")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Dashboard
           </Link>
-          <div className="flex flex-col md:flex-row gap-6 md:items-end justify-between">
-            <div className="flex gap-6 items-end">
-              <div className="relative h-24 w-24 md:h-32 md:w-32 rounded-2xl overflow-hidden bg-zinc-100 dark:bg-zinc-900 shrink-0 border border-zinc-200 dark:border-zinc-800 shadow-sm">
-                {event.coverImage ? (
-                  <Image
-                    src={event.coverImage}
-                    alt={event.name}
-                    fill
-                    sizes="128px"
-                    className="object-cover"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <ImageIcon className="h-8 w-8 text-zinc-300 dark:text-zinc-700" />
-                  </div>
-                )}
+          <div className="flex justify-between items-start md:items-end gap-6">
+            <div className="flex gap-4 md:gap-6 items-end">
+              <div className="relative h-20 w-20 md:h-32 md:w-32 rounded-2xl overflow-hidden bg-zinc-100 shrink-0 border border-zinc-200 shadow-sm">
+                <Image
+                  src={event.coverImage || "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&q=80&w=1600"}
+                  alt={event.name}
+                  fill
+                  sizes="128px"
+                  className="object-cover"
+                />
               </div>
-              <div>
-                <h1 className="text-3xl md:text-4xl font-serif font-semibold text-zinc-900 dark:text-zinc-50 tracking-tight">
+              <div className="pb-1">
+                <h1 className="text-2xl md:text-4xl font-serif font-semibold text-zinc-900 tracking-tight leading-tight">
                   {event.name}
                 </h1>
-                <div className="flex items-center text-sm text-zinc-500 mt-2">
-                  <Calendar className="mr-1.5 h-4 w-4" />
+                <div className="flex items-center text-xs md:text-sm text-zinc-500 mt-1 md:mt-2">
+                  <Calendar className="mr-1.5 h-3.5 w-3.5 md:h-4 md:w-4" />
                   Created {new Date(event.createdAt).toLocaleDateString()}
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <AlertDialog>
-                <AlertDialogTrigger
-                  className={cn(
-                    buttonVariants({ variant: "outline" }),
-                    "hidden md:flex text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950 border-red-200 dark:border-red-900"
-                  )}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Event
-                </AlertDialogTrigger>
+            <div className="flex items-center gap-2 pt-1 md:pt-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-9 w-9 shrink-0 rounded-full bg-white border-zinc-200 shadow-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 transition-colors")}>
+                  <MoreVertical className="h-4 w-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setIsSettingsOpen(true)} className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4 text-zinc-500" />
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsDeleteDialogOpen(true)} className="cursor-pointer text-red-600 focus:bg-red-50 focus:text-red-700">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Event
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
@@ -369,11 +455,8 @@ export default function EventDetailPage({ params }: PageProps) {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+
               <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                <DialogTrigger className={cn(buttonVariants({ variant: "outline" }), "hidden md:flex")}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </DialogTrigger>
                 <DialogContent className="sm:max-w-[425px]">
                   <DialogHeader>
                     <DialogTitle>Event Settings</DialogTitle>
@@ -381,32 +464,40 @@ export default function EventDetailPage({ params }: PageProps) {
                       Update the details of your event.
                     </DialogDescription>
                   </DialogHeader>
-                  <form onSubmit={handleUpdateEvent} className="space-y-4 mt-4">
+                  <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
                     <div className="space-y-2">
                       <Label htmlFor="name">Event Name</Label>
                       <Input
                         id="name"
-                        value={editForm.name}
-                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                         placeholder="My Awesome Event"
-                        required
+                        {...register("name")}
                       />
+                      {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="description">Description (Optional)</Label>
                       <Textarea
                         id="description"
-                        value={editForm.description}
-                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                         placeholder="Tell your attendees about this event..."
                         rows={3}
+                        {...register("description")}
                       />
+                      {errors.description && <p className="text-xs text-red-500 mt-1">{errors.description.message}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="coverImage">Cover Image URL (Optional)</Label>
+                      <Input
+                        id="coverImage"
+                        placeholder="https://example.com/image.jpg"
+                        {...register("coverImage")}
+                      />
+                      {errors.coverImage && <p className="text-xs text-red-500 mt-1">{errors.coverImage.message}</p>}
                     </div>
                     <div className="pt-4 flex justify-end gap-3">
                       <Button type="button" variant="outline" onClick={() => setIsSettingsOpen(false)}>
                         Cancel
                       </Button>
-                      <Button type="submit" disabled={isUpdatingEvent || !editForm.name.trim()}>
+                      <Button type="submit" disabled={isUpdatingEvent}>
                         {isUpdatingEvent && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Save Changes
                       </Button>
@@ -415,13 +506,18 @@ export default function EventDetailPage({ params }: PageProps) {
                 </DialogContent>
               </Dialog>
             </div>
+            </div>
           </div>
-        </div>
+
+          {/* Mobile Sidebar - Hidden on Desktop */}
+          <div className="block lg:hidden mt-8 mb-4">
+            {sidebarCardsContent}
+          </div>
             
         {/* Upload Zone */}
             <section>
               <div className="mb-4">
-                <h2 className="text-xl font-medium text-zinc-900 dark:text-zinc-100">Upload Photos</h2>
+                <h2 className="text-xl font-medium text-zinc-900 ">Upload Photos</h2>
                 <p className="text-sm text-zinc-500">Photos will be automatically indexed for face recognition.</p>
               </div>
               <Uploader eventId={resolvedParams.id} />
@@ -432,7 +528,7 @@ export default function EventDetailPage({ params }: PageProps) {
               <div className="mb-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-xl font-medium text-zinc-900 dark:text-zinc-100">Photo Gallery</h2>
+                    <h2 className="text-xl font-medium text-zinc-900 ">Photo Gallery</h2>
                     <p className="text-sm text-zinc-500">
                       {filteredPhotos.length} of {photos?.length ?? 0} photo{photos?.length !== 1 ? "s" : ""}
                     </p>
@@ -469,7 +565,7 @@ export default function EventDetailPage({ params }: PageProps) {
                 </div>
 
                 {/* Status filter tabs */}
-                <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl w-fit">
+                <div className="flex items-center gap-1 p-1 bg-zinc-100  rounded-xl w-fit">
                   {STATUS_TABS.map((tab) => {
                     const count =
                       tab.key === "ALL" ? (photos?.length ?? 0) :
@@ -483,8 +579,8 @@ export default function EventDetailPage({ params }: PageProps) {
                         className={cn(
                           "px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5",
                           statusFilter === tab.key
-                            ? "bg-white dark:bg-zinc-800 shadow-sm text-zinc-900 dark:text-zinc-100"
-                            : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                            ? "bg-white  shadow-sm text-zinc-900 "
+                            : "text-zinc-500 hover:text-zinc-700 :text-zinc-300"
                         )}
                       >
                         {tab.label}
@@ -499,21 +595,21 @@ export default function EventDetailPage({ params }: PageProps) {
 
               {/* Failed photos info banner */}
               {statusFilter === "FAILED" && filteredPhotos.length > 0 && (
-                <div className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 flex items-start gap-2.5">
+                <div className="mb-4 p-3 rounded-xl bg-red-50  border border-red-100  flex items-start gap-2.5">
                   <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-700 dark:text-red-400">
+                  <p className="text-sm text-red-700 ">
                     These photos failed to process. This may be due to an unsupported format, a corrupt file, or a Lambda timeout. You can delete and re-upload them.
                   </p>
                 </div>
               )}
 
               {!photos ? (
-                <div className="flex items-center justify-center h-48 border-2 border-dashed border-zinc-200 rounded-3xl">
+                <div className="flex items-center justify-center h-48 border-2 border-dashed border-zinc-200 rounded-[2rem]">
                   <Loader2 className="h-6 w-6 animate-spin text-zinc-300" />
                 </div>
               ) : filteredPhotos.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl bg-zinc-50 dark:bg-zinc-900/50">
-                  <ImageIcon className="h-8 w-8 text-zinc-300 dark:text-zinc-700 mb-2" />
+                <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-zinc-200  rounded-[2rem] bg-[#FAF7F2] ">
+                  <ImageIcon className="h-8 w-8 text-zinc-300  mb-2" />
                   <p className="text-sm text-zinc-500">
                     {statusFilter === "ALL" ? "No photos uploaded yet." : `No ${statusFilter.toLowerCase()} photos.`}
                   </p>
@@ -526,8 +622,8 @@ export default function EventDetailPage({ params }: PageProps) {
                       className={cn(
                         "relative aspect-square rounded-2xl overflow-hidden cursor-pointer group transition-all",
                         selectedPhotos.has(photo.id)
-                          ? "ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-950"
-                          : "hover:ring-2 hover:ring-zinc-300 hover:ring-offset-2 dark:hover:ring-zinc-700"
+                          ? "ring-2 ring-indigo-500 ring-offset-2 "
+                          : "hover:ring-2 hover:ring-zinc-300 hover:ring-offset-2 :ring-zinc-700"
                       )}
                     >
                       {/* Click to open lightbox */}
@@ -543,7 +639,7 @@ export default function EventDetailPage({ params }: PageProps) {
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={photo.previewUrl} alt="Photo" className="w-full h-full object-cover" />
                       ) : (
-                        <div className="absolute inset-0 bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
+                        <div className="absolute inset-0 bg-zinc-100  flex items-center justify-center">
                           {photo.status === "FAILED" ? (
                             <AlertCircle className="h-6 w-6 text-red-400" />
                           ) : (
@@ -606,58 +702,8 @@ export default function EventDetailPage({ params }: PageProps) {
               )}
             </section>
           </div>
-          <div className="space-y-8 lg:sticky lg:top-24 max-h-[calc(100vh-6rem)] overflow-y-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            <ShareLinkCard eventId={resolvedParams.id} eventName={event.name} />
-
-            {/* Stats Card */}
-            <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-              <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100 mb-4">Indexing Status</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                  <span className="text-zinc-500">Indexed &amp; Ready</span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 text-lg">{statusCounts?.indexed ?? 0}</span>
-                </div>
-                <div className="flex justify-between items-center pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                  <span className="text-zinc-500 flex items-center">
-                    Processing {statusCounts?.pending ? <Loader2 className="ml-2 h-3 w-3 animate-spin" /> : null}
-                  </span>
-                  <span className="font-semibold text-amber-600 text-lg">{statusCounts?.pending ?? 0}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-zinc-500">Failed</span>
-                  <span className={cn("font-medium text-sm", (statusCounts?.failed ?? 0) > 0 ? "text-red-500 font-semibold text-lg" : "text-zinc-400")}>
-                    {statusCounts?.failed ?? 0}
-                  </span>
-                </div>
-              </div>
-              {(statusCounts?.failed ?? 0) > 0 && (
-                <button
-                  onClick={() => setStatusFilter("FAILED")}
-                  className="mt-4 w-full text-xs text-red-500 hover:text-red-700 transition-colors text-center underline underline-offset-2"
-                >
-                  View failed photos →
-                </button>
-              )}
-            </div>
-
-            {/* Analytics Card */}
-            <div className="bg-white dark:bg-zinc-950 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-              <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100 mb-4">Analytics</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                  <span className="text-zinc-500">Total Searches</span>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-lg">
-                    {stats?.totalSearches ?? 0}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-zinc-500">Photos Found</span>
-                  <span className="font-semibold text-indigo-600 dark:text-indigo-400 text-lg">
-                    {stats?.totalPhotosFound ?? 0}
-                  </span>
-                </div>
-              </div>
-            </div>
+          <div className="hidden lg:block lg:sticky lg:top-24 max-h-[calc(100vh-6rem)] overflow-y-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            {sidebarCardsContent}
           </div>
         </div>
       </div>

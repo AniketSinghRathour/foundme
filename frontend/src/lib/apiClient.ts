@@ -1,13 +1,18 @@
+import { z } from "zod";
 import { env } from "./env";
 
 /**
  * A wrapper around native fetch that sets the base URL,
  * ensures credentials are included, and handles common errors.
+ * 
+ * Optionally takes a Zod schema to parse the response data, ensuring
+ * runtime type safety and automatic coercion (e.g. string -> Date).
  */
 export async function fetchApi<T = any>(
   endpoint: string,
-  options: RequestInit = {}
+  options?: RequestInit & { schema?: z.ZodType<T> }
 ): Promise<T> {
+  const { schema, ...fetchOptions } = options || {};
   const url = `${env.NEXT_PUBLIC_API_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
   
   const defaultOptions: RequestInit = {
@@ -20,10 +25,10 @@ export async function fetchApi<T = any>(
 
   const response = await fetch(url, {
     ...defaultOptions,
-    ...options,
+    ...fetchOptions,
     headers: {
       ...defaultOptions.headers,
-      ...options.headers,
+      ...fetchOptions.headers,
     },
   });
 
@@ -36,6 +41,11 @@ export async function fetchApi<T = any>(
   const json = await response.json();
   if (json.success === false) {
     throw new Error(json.message || "Unknown API error");
+  }
+
+  if (schema) {
+    // Validate and parse the data at runtime using Zod
+    return schema.parse(json.data);
   }
 
   return json.data as T;

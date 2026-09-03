@@ -100,7 +100,7 @@ export async function getEventStatus(eventId: string, ownerId: string) {
 export async function updateEvent(
   eventId: string,
   ownerId: string,
-  data: { name?: string; description?: string; coverImage?: string }
+  data: { name?: string; description?: string | null; coverImage?: string | null }
 ) {
   const event = await getEventById(eventId, ownerId);
 

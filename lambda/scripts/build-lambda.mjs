@@ -3,16 +3,17 @@
 // No PowerShell, no shell scripts. Works on Windows, macOS, Linux.
 //
 // What it does:
-//   1. npm install (prisma generate runs via postinstall hook)
-//   2. npm prune --omit=dev (prune devDependencies)
-//   3. Install Linux-compatible Sharp binary (--ignore-scripts --omit=dev --no-save)
-//   4. Remove Prisma CLI-only packages & bloat AFTER npm install (saves ~200 MB)
+//   1. npm install  (prisma generate runs via postinstall hook)
+//   2. Install Linux-compatible Sharp binary for Lambda runtime
+//   3. npm prune --omit=dev  (remove devDependencies)
+//   4. Remove Prisma CLI-only packages that are not needed at runtime
 //   5. Size check — abort if uncompressed > 250 MB Lambda limit
 //   6. Create lambda.zip
 
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { zip } from "bestzip";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -41,28 +42,31 @@ function dirSizeBytes(dir) {
 }
 
 // ---------------------------------------------------------------------------
+// Step 0 — Clean slate. A node_modules/package-lock.json generated on a
+// different OS (e.g. Windows) can cause npm to resolve/keep the wrong
+// platform binaries for sharp even after step 2 below (npm issue #4828).
+// ---------------------------------------------------------------------------
+console.log("\n[0/7] Cleaning old install (avoids stale cross-platform binaries)...");
+rmrf("node_modules");
+rmrf("package-lock.json");
+
+// ---------------------------------------------------------------------------
 // Step 1 — Install deps (postinstall runs prisma generate automatically)
 // ---------------------------------------------------------------------------
-console.log("\n[1/6] Installing deps (prisma generate runs via postinstall)...");
+console.log("\n[1/7] Installing deps (prisma generate runs via postinstall)...");
 run("npm install");
 
-// Dynamically import bestzip into memory now that npm install has guaranteed its existence
-const { zip } = await import("bestzip");
-
 // ---------------------------------------------------------------------------
-// Step 2 — Prune devDependencies
+// Step 2 — Linux-compatible Sharp binary for Lambda
 // ---------------------------------------------------------------------------
-console.log("\n[2/6] Pruning devDependencies...");
-run("npm prune --omit=dev");
-
-// ---------------------------------------------------------------------------
-// Step 3 — Install Linux-compatible Sharp binary.
-// ---------------------------------------------------------------------------
-console.log("\n[3/6] Installing Linux-compatible Sharp binary...");
+console.log("\n[2/7] Installing Linux-compatible Sharp binary...");
+// Remove whatever sharp resolved to in step 1 first, then install clean for
+// the Lambda target platform rather than layering on top of it.
+rmrf("node_modules/sharp");
 rmrf("node_modules/@img");
-run("npm install --os=linux --cpu=x64 --libc=glibc sharp --ignore-scripts --omit=dev --no-save");
+run("npm install --os=linux --cpu=x64 --libc=glibc sharp@0.34.5");
 
-console.log("\n[3b/6] Verifying Linux Sharp binary landed...");
+console.log("\n[2b/7] Verifying the Linux binary actually landed...");
 const imgDir = path.join(ROOT, "node_modules/@img");
 const sharpLinuxBinary = fs.existsSync(imgDir)
   ? fs.readdirSync(imgDir).find((name) => name.startsWith("sharp-linux-x64"))
@@ -71,21 +75,25 @@ const sharpLinuxBinary = fs.existsSync(imgDir)
 if (!sharpLinuxBinary) {
   console.error(
     "\n❌ sharp-linux-x64 binary not found under node_modules/@img after install.\n" +
-      "   Aborting before packaging a broken zip. Check npm output above for errors."
+    "   Aborting before packaging a broken zip. Check npm output above for errors."
   );
   process.exit(1);
 }
 console.log(`  Found: ${sharpLinuxBinary}`);
 
 // ---------------------------------------------------------------------------
-// Step 4 — Remove Prisma CLI-only bloat & unwanted deps AFTER npm commands run.
-//           This ensures no npm command can reinstall deleted bloat.
+// Step 3 — Prune devDependencies
 // ---------------------------------------------------------------------------
-console.log("\n[4/6] Removing Prisma CLI-only packages not needed at runtime...");
+console.log("\n[3/7] Pruning devDependencies...");
+run("npm prune --omit=dev");
+
+// ---------------------------------------------------------------------------
+// Step 4 — Remove Prisma CLI-only bloat (peerOptional deps of @prisma/client
+//           that are useless at Lambda runtime). Saves ~200 MB.
+// ---------------------------------------------------------------------------
+console.log("\n[4/7] Removing Prisma CLI-only packages not needed at runtime...");
 
 const bloat = [
-  // Prisma CLI package itself — ~42 MB
-  "node_modules/prisma",
   // Prisma Studio GUI — ~42 MB
   "node_modules/@prisma/studio-core",
   // CLI binary engines — ~21 MB (we use WASM compiler in @prisma/client/runtime instead)
@@ -106,6 +114,8 @@ const bloat = [
   "node_modules/elkjs",
   // react-dom — ~7 MB, Prisma Studio UI
   "node_modules/react-dom",
+  // NOTE: do NOT remove node_modules/@img — after Linux Sharp install it only
+  // contains sharp-linux-x64 + sharp-libvips-linux-x64, both required at Lambda runtime.
   // @visx — ~1.1 MB, Prisma Studio charts
   "node_modules/@visx",
   // valibot — validation used only by @prisma/config CLI
@@ -118,9 +128,6 @@ const bloat = [
   "node_modules/lodash",
   // @types — TypeScript definitions, useless at runtime
   "node_modules/@types",
-  // bestzip & rimraf — build tools not needed inside zip
-  "node_modules/bestzip",
-  "node_modules/rimraf",
   // Non-postgresql WASM runtimes — keep only postgresql (~37 MB saved)
   "node_modules/@prisma/client/runtime/query_compiler_fast_bg.sqlserver.wasm-base64.js",
   "node_modules/@prisma/client/runtime/query_compiler_fast_bg.sqlserver.wasm-base64.mjs",
@@ -145,7 +152,7 @@ for (const p of bloat) rmrf(p);
 // ---------------------------------------------------------------------------
 // Step 5 — Size check
 // ---------------------------------------------------------------------------
-console.log("\n[5/6] Checking uncompressed size...");
+console.log("\n[5/7] Checking uncompressed size...");
 
 const includeDirs = ["src", "node_modules", "prisma"];
 let totalBytes = 0;
@@ -164,13 +171,13 @@ if (!ok) {
 // ---------------------------------------------------------------------------
 // Step 6 — Zip
 // ---------------------------------------------------------------------------
-console.log("\n[6/6] Creating lambda.zip...");
+console.log("\n[6/7] Creating lambda.zip...");
 
 const zipPath = path.join(ROOT, "lambda.zip");
 if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
 
 await zip({
-  source: ["src/*", "node_modules/*", "node_modules/.prisma/*", "prisma/*", "package.json"],
+  source: ["src/*", "node_modules/*", "prisma/*", "package.json"],
   destination: zipPath,
   cwd: ROOT,
 });

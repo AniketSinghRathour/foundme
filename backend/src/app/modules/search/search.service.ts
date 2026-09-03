@@ -2,8 +2,9 @@ import { SearchFacesByImageCommand } from "@aws-sdk/client-rekognition";
 import { rekognition } from "../../common/config/rekognition.js";
 import { prisma } from "../../common/config/prisma.js";
 import { ApiError } from "../../common/utils/ApiError.js";
+import jwt from "jsonwebtoken";
 import { getPresignedPreviewUrl } from "../photos/photo.service.js";
-
+import { env } from "../../common/config/env.js";
 /** Minimum confidence threshold for face matches */
 const FACE_MATCH_THRESHOLD = 80;
 
@@ -49,7 +50,7 @@ export async function searchByFace(eventId: string, imageBase64: string, userId?
 
 
   if (faceMatches.length === 0) {
-    return [];
+    return { photos: [], downloadToken: null };
   }
 
   const matchedFaceIds = faceMatches
@@ -57,7 +58,7 @@ export async function searchByFace(eventId: string, imageBase64: string, userId?
     .filter((id): id is string => id !== undefined);
 
   if (matchedFaceIds.length === 0) {
-    return [];
+    return { photos: [], downloadToken: null };
   }
 
   // Look up Face rows linked to Photos in this event
@@ -103,7 +104,7 @@ export async function searchByFace(eventId: string, imageBase64: string, userId?
     });
 
   // Generate presigned R2 preview URLs for display
-  return Promise.all(
+  const photosWithUrls = await Promise.all(
     matchedPhotos.map(async (photo) => {
       const previewUrl = await getPresignedPreviewUrl(
         photo.r2KeyPreview,
@@ -116,4 +117,18 @@ export async function searchByFace(eventId: string, imageBase64: string, userId?
       };
     }),
   );
+
+  // Generate a signed download token containing the matched photo IDs (§12)
+  // Valid for 24 hours
+  const photoIds = matchedPhotos.map(p => p.id);
+  const downloadToken = jwt.sign(
+    { eventId, photoIds },
+    env.JWT_SECRET,
+    { expiresIn: "24h" }
+  );
+
+  return {
+    photos: photosWithUrls,
+    downloadToken,
+  };
 }

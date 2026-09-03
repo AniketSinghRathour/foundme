@@ -57,24 +57,27 @@ export async function deleteBatch(
 
 /** GET /api/photos/:photoId/download — presigned high-res S3 download URL for a single photo */
 export async function getDownloadUrl(
-  req: Request<PhotoIdParam>,
+  req: Request<PhotoIdParam, {}, {}, { token?: string }>,
   res: Response,
 ): Promise<void> {
   const { photoId } = req.params;
+  const token = req.query.token as string | undefined;
+  const userId = req.user?.id;
 
-  const result = await photoService.getPresignedDownloadUrl(photoId);
+  const result = await photoService.getPresignedDownloadUrl(photoId, userId, token);
 
   ApiResponse.ok(res, "Download URL generated", result);
 }
 
 /** POST /api/photos/batch-download — presigned high-res S3 download URLs for multiple photos */
 export async function getBatchDownloadUrls(
-  req: Request<{}, {}, BatchDownloadInput>,
+  req: Request<{}, {}, BatchDownloadInput & { token?: string }>,
   res: Response,
 ): Promise<void> {
-  const { photoIds } = req.body;
+  const { photoIds, token } = req.body;
+  const userId = req.user?.id;
 
-  const results = await photoService.getBatchPresignedDownloadUrls(photoIds);
+  const results = await photoService.getBatchPresignedDownloadUrls(photoIds, userId, token);
 
   ApiResponse.ok(res, "Batch download URLs generated", results);
 }

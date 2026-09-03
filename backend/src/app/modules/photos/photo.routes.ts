@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth/auth.middleware.js";
+import { requireAuth, optionalAuth } from "../auth/auth.middleware.js";
 import { validate } from "../../common/middleware/validate.js";
 import {
   batchUploadSchema,
@@ -25,6 +25,7 @@ const router = Router();
 /** GET /api/photos/:photoId/download — presigned high-res S3 download URL (on click) */
 router.get(
   "/:photoId/download",
+  optionalAuth,
   validate(photoIdParamSchema, "params"),
   photoController.getDownloadUrl,
 );
@@ -32,6 +33,7 @@ router.get(
 /** POST /api/photos/batch-download — presigned high-res S3 download URLs (on "Download All" click) */
 router.post(
   "/batch-download",
+  optionalAuth,
   validate(batchDownloadSchema, "body"),
   photoController.getBatchDownloadUrls,
 );

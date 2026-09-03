@@ -1,45 +1,32 @@
 import Link from "next/link";
-import { Camera } from "lucide-react";
 
 export function Footer() {
   return (
-    <footer className="bg-white border-t border-zinc-200 py-12 md:py-16">
+    <footer className="bg-zinc-950 text-white border-t border-zinc-900 py-10 md:py-14">
       <div className="container mx-auto px-4 max-w-7xl">
-        <div className="flex flex-col md:flex-row justify-between items-center md:items-start gap-8">
-          <div className="text-center md:text-left">
-            <Link href="/" className="inline-flex items-center gap-2 font-serif text-2xl font-semibold text-zinc-900 mb-4">
-              FoundMe
+        {/* Top row */}
+        <div className="flex flex-col md:flex-row justify-between items-center md:items-start gap-6 pb-10 mb-8 border-b border-zinc-800/60">
+          <div className="flex flex-col md:flex-row items-center md:items-start gap-6 w-full">
+            <Link href="/" className="font-serif text-2xl font-semibold text-white tracking-tight">
+              Facet
             </Link>
-            <p className="text-zinc-500 max-w-sm">
+            <p className="text-zinc-500 text-sm max-w-xs text-center md:text-left leading-relaxed md:ml-8 md:border-l md:border-zinc-800 md:pl-8">
               The smartest way to deliver event photos. AI-powered face recognition for instant, seamless galleries.
             </p>
           </div>
-          
-          <div className="flex gap-12 text-center md:text-left">
-             <div>
-                <h4 className="font-semibold text-zinc-900 mb-4">Product</h4>
-                <ul className="space-y-3 text-sm text-zinc-500">
-                   <li><Link href="/sign-up" className="hover:text-zinc-900 transition-colors">For Photographers</Link></li>
-                   <li><Link href="/sign-up" className="hover:text-zinc-900 transition-colors">For Attendees</Link></li>
-                   <li><Link href="/sign-in" className="hover:text-zinc-900 transition-colors">Sign In</Link></li>
-                </ul>
-             </div>
-             <div>
-                <h4 className="font-semibold text-zinc-900 mb-4">Legal</h4>
-                <ul className="space-y-3 text-sm text-zinc-500">
-                   <li><Link href="#" className="hover:text-zinc-900 transition-colors">Privacy Policy</Link></li>
-                   <li><Link href="#" className="hover:text-zinc-900 transition-colors">Terms of Service</Link></li>
-                   <li><Link href="#" className="hover:text-zinc-900 transition-colors">Contact</Link></li>
-                </ul>
-             </div>
-          </div>
         </div>
-        
-        <div className="mt-16 pt-8 border-t border-zinc-200 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-zinc-500">
-          <div>© {new Date().getFullYear()} FoundMe. All rights reserved.</div>
-          <div className="flex items-center gap-2">
-            Built with <Camera className="h-4 w-4" /> for memories
+
+        {/* Bottom row */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-zinc-500">
+          <div className="flex items-center gap-8">
+            <Link href="#" className="hover:text-white transition-colors">Privacy</Link>
+            <Link href="#" className="hover:text-white transition-colors">Terms</Link>
+            <Link href="#" className="hover:text-white transition-colors">Contact</Link>
           </div>
+
+          <span className="text-xs md:text-sm">
+            &copy; {new Date().getFullYear()} Facet. All rights reserved.
+          </span>
         </div>
       </div>
     </footer>

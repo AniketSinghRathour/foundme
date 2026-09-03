@@ -14,13 +14,14 @@ export async function search(
   const { eventId, image } = req.body;
   const userId = req.user?.id;
 
-  const photos = await searchService.searchByFace(eventId, image, userId);
+  const result = await searchService.searchByFace(eventId, image, userId);
 
   ApiResponse.ok(res, "Search completed", {
-    matchCount: photos.length,
-    photos: photos.map((p) => ({
+    matchCount: result.photos.length,
+    photos: result.photos.map((p) => ({
       id: p.id,
       previewUrl: p.previewUrl,
     })),
+    downloadToken: result.downloadToken,
   });
 }

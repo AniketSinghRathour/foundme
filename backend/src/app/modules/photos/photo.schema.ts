@@ -46,6 +46,7 @@ export const batchDownloadSchema = z.object({
     .array(z.string().min(1))
     .min(1, "At least one photo ID is required")
     .max(100, "Maximum 100 photos per batch download"),
+  token: z.string().optional(),
 });
 
 export type BatchDownloadInput = z.infer<typeof batchDownloadSchema>;

@@ -6,7 +6,7 @@ import eventRouter from "./modules/events/event.routes.js";
 import photoRouter from "./modules/photos/photo.routes.js";
 import searchRouter from "./modules/search/search.routes.js";
 import webhookRouter from "./modules/webhooks/webhook.routes.js";
-import userRouter from "./modules/users/user.routes.js";
+
 import { errorHandler } from "./common/middleware/errorHandler.js";
 
 /**
@@ -53,7 +53,7 @@ export function createApplication(): Express {
   app.use("/api/events", eventRouter);
   app.use("/api/photos", photoRouter);
   app.use("/api/search", searchRouter);
-  app.use("/api/users", userRouter);
+
 
   // ── 7. Error handler — MUST be last (§5, §8) ──
   app.use(errorHandler);

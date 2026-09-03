@@ -23,7 +23,7 @@ export function Testimonial() {
           <div className="md:w-2/3 space-y-6 text-center md:text-left">
             <Quote className="h-12 w-12 text-zinc-700 mb-6 mx-auto md:mx-0" />
             <blockquote className="text-2xl md:text-4xl font-serif leading-tight">
-              "FoundMe changed how I deliver event galleries. Instead of scrolling through thousands of photos, attendees find their moments instantly."
+              "Facet changed how I deliver event galleries. Instead of scrolling through thousands of photos, attendees find their moments instantly."
             </blockquote>
             <div className="pt-4">
               <div className="text-lg font-medium">Sarah Jenkins</div>
